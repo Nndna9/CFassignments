@@ -44,7 +44,7 @@ import streamlit as st
 # CONFIG — edit these
 # ============================================================================ #
 # ⚠ CHANGE THIS. The SEC blocks requests that do not identify the caller.
-SEC_USER_AGENT = "Nandana Student Project nandana@university.edu"
+SEC_USER_AGENT = "Nandana"
 
 NVIDIA_API_KEY = "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"
 FINNHUB_API_KEY = "d9m6tohr01qpfnk7alrgd9m6tohr01qpfnk7als0"
