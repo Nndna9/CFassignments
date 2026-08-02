@@ -44,7 +44,7 @@ import streamlit as st
 # CONFIG — edit these
 # ============================================================================ #
 # ⚠ CHANGE THIS. The SEC blocks requests that do not identify the caller.
-SEC_USER_AGENT = "Nandana Student nandana.as25dxb019@spjain.org"
+SEC_USER_AGENT = "Nandana Student Project nandana@university.edu"
 
 NVIDIA_API_KEY = "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"
 FINNHUB_API_KEY = "d9m6tohr01qpfnk7alrgd9m6tohr01qpfnk7als0"
@@ -155,7 +155,8 @@ CONCEPTS: dict[str, tuple] = {
         "StockholdersEquity",
         "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"]),
     "shares_outstanding": (BS, "Shares outstanding", INST, "asis", [
-        "CommonStockSharesOutstanding", "CommonStockSharesIssued"]),
+        "CommonStockSharesOutstanding", "EntityCommonStockSharesOutstanding",
+        "CommonStockSharesIssued"]),
 
     "cfo": (CF, "Operating cash flow", DUR, "asis", [
         "NetCashProvidedByUsedInOperatingActivities",
@@ -189,6 +190,11 @@ DERIVATIONS = [
     ("total_liabilities", ["total_assets", "total_equity"], lambda v: v[0] - v[1], "total_assets - total_equity"),
     ("total_equity", ["total_assets", "total_liabilities"], lambda v: v[0] - v[1], "total_assets - total_liabilities"),
     ("cost_of_revenue", ["revenue", "gross_profit"], lambda v: v[0] - v[1], "revenue - gross_profit"),
+    # Last resort for share count. Some filers only put shares on the cover page,
+    # dated after the fiscal year end, so it lands on the wrong year. This lands
+    # on the right one because both inputs are the same annual period.
+    ("shares_outstanding", ["net_income", "eps_diluted"],
+     lambda v: (v[0] / v[1]) if v[1] else None, "net_income / diluted_EPS"),
 ]
 
 VALIDATIONS = [
@@ -204,6 +210,14 @@ VALIDATIONS = [
 
 ANNUAL_MIN, ANNUAL_MAX = 300, 400
 FORMS = {"10-K", "10-K/A", "10-KT"}
+
+# XBRL facts are filed under a unit. Everything is USD except these two, and
+# matching the wrong unit silently drops the concept.
+CONCEPT_UNITS = {"eps_diluted": "USD/shares", "shares_outstanding": "shares"}
+
+# `dei` carries cover-page facts, which is where many filers put shares
+# outstanding. Omitting it is why per-share figures came back as "n/a".
+TAXONOMIES = ("us-gaap", "ifrs-full", "srt", "dei")
 
 
 # ============================================================================ #
@@ -369,13 +383,13 @@ def resolve(facts_json: dict, max_years: int) -> list[Fact]:
 
     for concept, (_s, _l, period, sign, tags) in CONCEPTS.items():
         best: dict[int, dict] = {}
+        want_unit = CONCEPT_UNITS.get(concept, "USD")
         for priority, tag in enumerate(tags):
-            for taxonomy in ("us-gaap", "ifrs-full", "srt"):
+            for taxonomy in TAXONOMIES:
                 node = root.get(taxonomy, {}).get(tag)
                 if not node:
                     continue
-                units = node.get("units", {})
-                for entry in units.get("USD", []) + units.get("shares", []):
+                for entry in node.get("units", {}).get(want_unit, []):
                     if entry.get("form") not in FORMS:
                         continue
                     start, end = _date(entry.get("start")), _date(entry.get("end"))
@@ -844,7 +858,7 @@ def run_scenarios(c: Company, sets: dict[str, Drivers], price: float | None) -> 
     return out
 
 
-def tornado(c: Company, base: Drivers, variables: list[str], shift=.20) -> pd.DataFrame:
+def tornado(c: Company, base: Drivers, variables: list[str], shift=.10) -> pd.DataFrame:
     b = value(c, base).equity_value
     rows = []
     for v in variables:
@@ -872,19 +886,37 @@ def two_way(c: Company, base: Drivers, vx: str, vy: str, steps=5, span=.25) -> p
     return pd.DataFrame(grid, index=[f"{v:.2%}" for v in ys], columns=[f"{v:.2%}" for v in xs])
 
 
-def goal_seek(c: Company, base: Drivers, target: float, variable="revenue_growth") -> float | None:
-    """Bisection on the deterministic model."""
+def _vps_at(c: Company, base: Drivers, variable: str, x: float) -> float | None:
+    d = base.copy()
+    setattr(d, variable, x)
+    return value(c, d).value_per_share
+
+
+def goal_seek(c: Company, base: Drivers, target: float,
+              variable="revenue_growth") -> tuple[float | None, str]:
+    """Bisection on the deterministic model.
+
+    Returns (solution, explanation). When there is no solution the explanation
+    says what IS reachable, which is more useful than "no solution found".
+    """
     lo, hi = -.50, 1.00
+    v_lo, v_hi = _vps_at(c, base, variable, lo), _vps_at(c, base, variable, hi)
+    if v_lo is None or v_hi is None:
+        return None, ("Value per share cannot be computed because the share count is "
+                      "unknown for this filer.")
+    if target < min(v_lo, v_hi) or target > max(v_lo, v_hi):
+        return None, (f"Out of reach. Across the searched range ({DRIVER_LABELS[variable]} "
+                      f"from {lo:.0%} to {hi:.0%}) the model produces "
+                      f"${min(v_lo, v_hi):,.2f} to ${max(v_lo, v_hi):,.2f} per share.")
     for _ in range(60):
         mid = (lo + hi) / 2
-        d = base.copy(); setattr(d, variable, mid)
-        vps = value(c, d).value_per_share
+        vps = _vps_at(c, base, variable, mid)
         if vps is None:
-            return None
+            return None, "Value per share cannot be computed."
         if abs(vps - target) < .01:
-            return round(mid, 4)
+            return round(mid, 4), ""
         lo, hi = (mid, hi) if vps < target else (lo, mid)
-    return round((lo + hi) / 2, 4)
+    return round((lo + hi) / 2, 4), ""
 
 
 # ============================================================================ #
@@ -1786,42 +1818,68 @@ def ch_water(labels, values, title=""):
 
 
 def ch_tornado(df, base, title=""):
+    """Widest bar = the assumption that matters most. Labels sit outside the bars
+    and the layout gets extra top and left margin so nothing collides with the
+    panel above it."""
+    lo, hi = df["Value at low"] - base, df["Value at high"] - base
     fig = go.Figure()
-    fig.add_trace(go.Bar(y=df["Variable"], x=df["Value at low"] - base, orientation="h",
-                         name="Downside", marker_color=P["red"], marker_line_width=0))
-    fig.add_trace(go.Bar(y=df["Variable"], x=df["Value at high"] - base, orientation="h",
-                         name="Upside", marker_color=P["green"], marker_line_width=0))
-    fig.update_layout(barmode="relative", title=dict(text=title, font=dict(size=12, color=P["dim"])))
-    fig = _style(fig, 310, "Change in equity value vs base case")
-    fig.update_yaxes(showgrid=False, autorange="reversed")
+    fig.add_trace(go.Bar(y=df["Variable"], x=lo, orientation="h", name="Downside",
+                         marker_color=P["red"], marker_line_width=0,
+                         text=[money(v, 1) for v in df["Value at low"]],
+                         textposition="outside", textfont=dict(family=F, size=10),
+                         hovertemplate="%{y}<br>downside %{text}<extra></extra>"))
+    fig.add_trace(go.Bar(y=df["Variable"], x=hi, orientation="h", name="Upside",
+                         marker_color=P["green"], marker_line_width=0,
+                         text=[money(v, 1) for v in df["Value at high"]],
+                         textposition="outside", textfont=dict(family=F, size=10),
+                         hovertemplate="%{y}<br>upside %{text}<extra></extra>"))
+    fig.update_layout(barmode="relative",
+                      title=dict(text=title, font=dict(size=12, color=P["dim"])),
+                      margin=dict(l=10, r=10, t=52, b=40))
+    fig = _style(fig, 340, "")
+    fig.update_layout(margin=dict(l=10, r=10, t=52, b=44))
+    fig.update_xaxes(title=dict(text="Change in equity value against the base case",
+                                font=dict(size=10)), showgrid=True, gridcolor=P["rule"])
+    fig.update_yaxes(showgrid=False, autorange="reversed", tickfont=dict(size=11))
     return fig
 
 
 def ch_heat(df, title="", xt="", yt=""):
-    fig = go.Figure(go.Heatmap(z=df.values, x=list(df.columns), y=list(df.index),
-                               colorscale=[[0, P["red"]], [.5, P["panel2"]], [1, P["green"]]],
-                               colorbar=dict(outlinewidth=0, tickfont=dict(family=F, size=9)),
-                               hovertemplate="%{y} / %{x}<br>$%{z:,.2f} per share<extra></extra>"))
+    """Grid of outcomes. The number is printed in every cell — a colour gradient
+    alone tells you the shape but not the answer, and the answer is the point.
+    Axes are forced to category so Plotly does not read "9.00%" as the number 9.
+    """
+    fig = go.Figure(go.Heatmap(
+        z=df.values, x=list(df.columns), y=list(df.index),
+        colorscale=[[0, P["red"]], [.5, P["panel2"]], [1, P["green"]]],
+        colorbar=dict(outlinewidth=0, tickfont=dict(family=F, size=9),
+                      title=dict(text="$ / share", font=dict(size=9))),
+        text=[[f"${v:,.0f}" for v in row] for row in df.values],
+        texttemplate="%{text}", textfont=dict(family=F, size=11, color=P["ink"]),
+        hovertemplate=(f"{yt} %{{y}} · {xt} %{{x}}<br>"
+                       "value per share $%{z:,.2f}<extra></extra>")))
     fig.update_layout(title=dict(text=title, font=dict(size=12, color=P["dim"])))
-    fig = _style(fig, 350)
-    fig.update_xaxes(title=dict(text=xt, font=dict(size=10)))
-    fig.update_yaxes(showgrid=False, title=dict(text=yt, font=dict(size=10)))
+    fig = _style(fig, 380)
+    fig.update_xaxes(type="category", title=dict(text=xt, font=dict(size=10)))
+    fig.update_yaxes(type="category", showgrid=False,
+                     title=dict(text=yt, font=dict(size=10)))
     return fig
 
 
-def ch_scen(names, vals, price=None, title=""):
+def ch_scen(names, vals, price=None, title="", unit="$", ytitle="Intrinsic value per share"):
     cmap = {"Optimistic": P["green"], "Base case": P["blue"], "Pessimistic": P["red"],
             "AI scenario": P["violet"]}
     fig = go.Figure(go.Bar(x=names, y=vals, marker_line_width=0,
                            marker_color=[cmap.get(n, P["blue"]) for n in names],
-                           text=[f"${v:,.2f}" for v in vals], textposition="outside",
+                           text=[(f"${v:,.2f}" if unit == "$" else money(v, 1)) for v in vals],
+                           textposition="outside",
                            textfont=dict(family=F, size=11, color=P["ink"])))
     if price:
         fig.add_hline(y=price, line=dict(color=P["dim"], width=1.4, dash="dot"),
                       annotation_text=f"market price ${price:,.2f}",
                       annotation_font=dict(family=F, size=10, color=P["dim"]))
     fig.update_layout(title=dict(text=title, font=dict(size=12, color=P["dim"])))
-    return _style(fig, 320, "Intrinsic value per share")
+    return _style(fig, 320, ytitle)
 
 
 # ============================================================================ #
@@ -1832,9 +1890,15 @@ st.set_page_config(page_title="Financial Statement Intelligence", page_icon="�
 st.markdown(CSS, unsafe_allow_html=True)
 
 def _pick_ticker(t: str) -> None:
-    """Set from an on_click callback. Callbacks run BEFORE the rerun, which is the
-    only legal moment to write to a key that a widget already owns."""
+    """Set the ticker AND request a load.
+
+    Written from an on_click callback because callbacks run BEFORE the rerun,
+    which is the only legal moment to write to a key a widget already owns.
+    The load flag exists because a quick-pick that silently fills a text box and
+    does nothing else looks broken.
+    """
     st.session_state.ticker_in = t
+    st.session_state.autoload = True
 
 
 st.session_state.setdefault("ticker_in", "AAPL")
@@ -1856,6 +1920,7 @@ with st.sidebar:
     ticker = (st.session_state.get("ticker_in") or "AAPL").strip().upper()
     nyears = st.slider("Fiscal years", 3, 10, 6)
     go_btn = st.button("Load company", type="primary", width="stretch")
+    go_btn = go_btn or st.session_state.pop("autoload", False)
 
     st.markdown("---")
     prov_name = llm_provider()
@@ -1896,6 +1961,9 @@ if "data" not in st.session_state or go_btn:
             st.error(f"{exc}\n\nFalling back to the demo company so the dashboard stays usable.")
             st.session_state.data, st.session_state.demo = demo_company(), True
 
+CORE_CONCEPTS = ["revenue", "net_income", "total_assets", "total_equity", "cfo",
+                 "shares_outstanding", "current_assets", "current_liabilities"]
+
 d = st.session_state.data
 C = Company(d["profile"], [Fact(**f) for f in d["facts"]], d["unmapped"], d["validations"], d["quality"])
 years = C.years
@@ -1930,7 +1998,7 @@ SCEN_SET = calibrated(C)
 if "ai_drivers" in st.session_state:
     SCEN_SET = {**SCEN_SET, "AI scenario": Drivers(**st.session_state.ai_drivers)}
 RESULTS = run_scenarios(C, SCEN_SET, price)
-BREAK_EVEN = goal_seek(C, BASE, price) if price else None
+BREAK_EVEN = goal_seek(C, BASE, price)[0] if price else None
 
 # --- masthead ---------------------------------------------------------------
 p = C.profile
@@ -1971,7 +2039,15 @@ if p.get("is_financial"):
                "suppressed here.")
 if not price:
     st.warning(f"**No share price** ({psrc}). Market value, P/B and P/E are hidden. Enter a price "
-               "above, or add a Finnhub key in the sidebar.")
+               "in the override box above.")
+
+_missing = [CONCEPTS[k][1] for k in CORE_CONCEPTS if C.get(k, Y) is None]
+if _missing:
+    st.warning(f"**Could not resolve {len(_missing)} core line item(s) for FY{Y}:** "
+               + ", ".join(_missing)
+               + ". Anything depending on them is hidden rather than guessed. This usually means "
+               "the filer uses an XBRL tag the concept registry does not list yet — the "
+               "unregistered tags are listed on the AI insights → Data extraction tab.")
 
 T1, T2, T3, T4, T5 = st.tabs(["Overview", "Statements & cash flow", "Scenario lab",
                               "Risk & alerts", "AI insights"])
@@ -2038,6 +2114,10 @@ with T1:
     b.plotly_chart(ch_trend(RT, {"operating_margin": "Operating margin", "net_margin": "Net margin",
                                  "fcf_margin": "FCF margin"}, "Margin structure", "% of revenue"),
                    width="stretch")
+    st.caption("**How to read this.** Left: the absolute size of the business each year — the "
+               "three bars should broadly track each other, and cash flow drifting below profit "
+               "is the thing to notice. Right: the same story as percentages, which strips out "
+               "growth and shows whether each dollar of sales is getting more or less profitable.")
 
     st.markdown(sec("Ratio summary", "select groups to expand"), unsafe_allow_html=True)
     grps = sorted({v[2] for v in RATIO_META.values()})
@@ -2107,6 +2187,10 @@ with T2:
                              "Operating, investing and financing cash flow", "USD"), width="stretch")
     f2.plotly_chart(ch_bars(years, [fcf(C, y) or 0 for y in years], "Free cash flow", "USD"),
                     width="stretch")
+    st.caption("**How to read this.** Left: where cash came from and went. Operating should be "
+               "positive and the largest bar; investing is usually negative for a growing "
+               "company; financing shows debt and shareholder returns. Right: what is left after "
+               "the business has paid to maintain itself — green bars are years it funded itself.")
 
     st.markdown(sec("Earnings quality", "cash generated versus profit reported"),
                 unsafe_allow_html=True)
@@ -2119,11 +2203,18 @@ with T2:
     e2.plotly_chart(ch_trend(RT, {"cash_conversion": "CFO / net income",
                                   "accruals_ratio": "Accruals ratio"},
                              "Conversion and accruals", "ratio"), width="stretch")
+    e2.caption("CFO / net income above 1.0 means the company collects more cash than it books as "
+               "profit, which is healthy. A rising accruals ratio means the opposite: profit is "
+               "increasingly made of promises rather than cash.")
 
     if "dso" in RT.index:
         st.plotly_chart(ch_trend(RT, {"dso": "Days sales outstanding", "dio": "Days inventory",
                                       "dpo": "Days payables"}, "Cash conversion cycle", "days"),
                         width="stretch")
+        st.caption("**How to read this.** Days to collect from customers, days stock sits, and "
+                   "days taken to pay suppliers. Collection and inventory rising while payables "
+                   "stay flat means cash is being tied up — the pattern behind most working "
+                   "capital surprises.")
 
     st.markdown(sec("Provenance", "every figure traced to its filing"), unsafe_allow_html=True)
     lineage = pd.DataFrame([{
@@ -2152,8 +2243,23 @@ with T3:
         "Equity value": money(r.equity_value),
         "Value per share": f"${r.value_per_share:,.2f}" if r.value_per_share else "n/a",
         "Decision": r.decision} for r in RESULTS]), width="stretch", hide_index=True)
-    st.plotly_chart(ch_scen([r.name for r in RESULTS], [r.value_per_share or 0 for r in RESULTS],
-                            price, "Intrinsic value per share by scenario"), width="stretch")
+    have_vps = all(r.value_per_share for r in RESULTS)
+    if have_vps:
+        st.plotly_chart(ch_scen([r.name for r in RESULTS],
+                                [r.value_per_share for r in RESULTS], price,
+                                "What each scenario says the share is worth"), width="stretch")
+        best, worst = RESULTS[0], RESULTS[-1]
+        spread = f"${worst.value_per_share:,.2f} to ${best.value_per_share:,.2f}"
+        note = (f"Across the three cases the model values the share between {spread}."
+                + (f" The market is paying ${price:,.2f}." if price else ""))
+    else:
+        st.plotly_chart(ch_scen([r.name for r in RESULTS], [r.equity_value for r in RESULTS],
+                                None, "What each scenario says the equity is worth",
+                                unit="usd", ytitle="Equity value"), width="stretch")
+        note = ("Per-share figures are unavailable because the share count could not be "
+                "resolved from this filing, so the chart shows total equity value instead.")
+    st.caption("**How to read this.** Each bar is a full five-year cash-flow forecast run on a "
+               "different set of assumptions, discounted back to today. " + note)
 
     st.markdown(sec("Assumption controls", "drag to model your own case"), unsafe_allow_html=True)
     s1, s2, s3 = st.columns(3)
@@ -2185,34 +2291,57 @@ with T3:
         st.dataframe(LIVE.projection.style.format(lambda v: f"{v:,.0f}"), width="stretch")
 
     st.markdown(sec("Sensitivity analysis", "at least two variables required"), unsafe_allow_html=True)
-    svars = st.multiselect("Variables to test", list(DRIVER_LABELS), label_visibility="collapsed",
-                           default=["revenue_growth", "wacc", "gross_margin", "capex_pct_revenue"],
-                           format_func=lambda k: DRIVER_LABELS[k])
+    sv1, sv2 = st.columns([3, 1])
+    svars = sv1.multiselect("Variables to test", list(DRIVER_LABELS),
+                            default=["revenue_growth", "wacc", "gross_margin",
+                                     "capex_pct_revenue"],
+                            format_func=lambda k: DRIVER_LABELS[k])
+    shift = sv2.slider("Shock size", 0.05, 0.30, 0.10, 0.05, format="%.0f%%",
+                       help="How far each assumption is moved up and down, as a "
+                            "percentage of its own base value.")
     if len(svars) >= 2:
-        TD = tornado(C, M, svars)
+        TD = tornado(C, M, svars, shift)
         st.plotly_chart(ch_tornado(TD, LIVE.equity_value,
-                                   "Equity value sensitivity, ±20% on each driver"), width="stretch")
-        st.markdown(pan(f"<p><b>{TD.iloc[0]['Variable']}</b> dominates: a ±20% move changes equity "
-                        f"value by {money(TD.iloc[0]['Swing'])}, "
-                        f"{TD.iloc[0]['Impact %']:.0%} of the base case. "
-                        f"<b>{TD.iloc[-1]['Variable']}</b> matters least "
-                        f"({TD.iloc[-1]['Impact %']:.0%}).</p>"), unsafe_allow_html=True)
+                                   f"Move each assumption ±{shift:.0%} and see what happens"),
+                        width="stretch")
+        top, bottom = TD.iloc[0], TD.iloc[-1]
+        st.markdown(pan(
+            f"<p><b>{top['Variable']}</b> is the assumption that matters. Moving it "
+            f"±{shift:.0%} swings equity value by {money(top['Swing'])} — "
+            f"{top['Impact %']:.0%} of the base case. <b>{bottom['Variable']}</b> barely "
+            f"registers at {bottom['Impact %']:.0%}.</p>"
+            f"<p style='color:{P['muted']};font-size:.85rem'>This is a proportional shock, so "
+            f"drivers already close to zero move by very little in absolute terms, and a "
+            f"low-margin business will show a large swing on gross margin because a small "
+            f"percentage of a thin margin is still most of its profit.</p>"),
+            unsafe_allow_html=True)
+
+        st.markdown(sec("Two assumptions at once", "value per share in every cell"),
+                    unsafe_allow_html=True)
         st.plotly_chart(ch_heat(two_way(C, M, "wacc", "terminal_growth"),
-                                "Value per share: WACC versus terminal growth",
-                                "WACC", "Terminal growth"), width="stretch")
+                                "Value per share at each combination of WACC and terminal growth",
+                                "WACC (discount rate)", "Terminal growth"), width="stretch")
+        st.caption("**How to read this.** Read across for a different discount rate, down for a "
+                   "different long-run growth rate. Green is a higher valuation, red lower. The "
+                   "two are the most contested inputs in any DCF, which is why they get a grid "
+                   "rather than a single number.")
     else:
-        st.markdown(empty("Select at least two variables to run the sensitivity analysis."),
+        st.markdown(empty("Pick at least two variables to compare their impact."),
                     unsafe_allow_html=True)
 
     st.markdown(sec("Goal seek", "bisection on the deterministic model"), unsafe_allow_html=True)
     g1, g2 = st.columns([1, 2])
     tgt = g1.number_input("Target value per share (USD)", value=float(round(price or 50.0, 2)),
                           step=1.0)
-    solved = goal_seek(C, M, tgt)
-    g2.markdown(pan(f"<p>To reach <b>${tgt:,.2f}</b> per share, sustained annual revenue growth "
-                    f"would need to be <b>{solved:.2%}</b>, against a base assumption of "
-                    f"{M.revenue_growth:.2%}.</p>" if solved is not None
-                    else "<p>No solution inside the search bounds.</p>"), unsafe_allow_html=True)
+    solved, why = goal_seek(C, M, tgt)
+    if solved is not None:
+        g2.markdown(pan(
+            f"<p>To reach <b>${tgt:,.2f}</b> per share, sustained annual revenue growth would "
+            f"need to be <b>{solved:.2%}</b>, against a base assumption of "
+            f"{M.revenue_growth:.2%}. Solved by bisection on the deterministic model — the "
+            f"answer is computed, not estimated.</p>"), unsafe_allow_html=True)
+    else:
+        g2.markdown(pan(f"<p>{why}</p>"), unsafe_allow_html=True)
 
 # --- TAB 4: RISK & ALERTS ---------------------------------------------------
 with T4:
