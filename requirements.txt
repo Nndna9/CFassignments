@@ -1,0 +1,9 @@
+streamlit>=1.50
+pandas>=2.2
+plotly>=5.22
+requests>=2.31
+
+# Optional. Gemini needs no SDK — it is called over plain HTTPS with requests.
+# Install these only if you want to switch to Claude or GPT.
+anthropic>=0.40
+openai>=1.40
