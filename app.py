@@ -95,7 +95,7 @@ OPENAI_BASE = "https://api.openai.com/v1"
 
 FORECAST_YEARS = 5
 FINANCIAL_SIC = (6000, 6799)
-QUICK_TICKERS = ["AAPL", "MSFT", "NVDA", "WMT", "XOM", "PG", "CAT", "KO"]
+QUICK_TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "WMT", "PG", "KO"]
 
 # ============================================================================ #
 # CANONICAL FINANCIAL CONCEPT MODEL
@@ -1596,17 +1596,54 @@ def ai_ask(c, R, flags, results, q) -> dict:
 # ============================================================================ #
 # UI — design system
 # ============================================================================ #
-P = {"base": "#0A0E14", "panel": "#121924", "panel2": "#18212E", "rule": "#25303F",
-     "ink": "#E3EAF4", "dim": "#98A8BC", "muted": "#66768B", "green": "#54C79A",
-     "amber": "#E5B33F", "red": "#E2695F", "blue": "#77A8DC", "violet": "#9B8FE0"}
+# Two palettes. `P` is mutated in place at startup from the theme in session state,
+# so every chart function and every f-string below reads the active theme without
+# needing to be passed it.
+PALETTES = {
+    "dark": {"base": "#0A0E14", "panel": "#121924", "panel2": "#18212E", "rule": "#25303F",
+             "ink": "#E3EAF4", "dim": "#98A8BC", "muted": "#66768B", "green": "#54C79A",
+             "amber": "#E5B33F", "red": "#E2695F", "blue": "#77A8DC", "violet": "#9B8FE0",
+             "head": "#1B2431", "shadow": "rgba(0,0,0,.35)"},
+    "light": {"base": "#F7F8FA", "panel": "#FFFFFF", "panel2": "#F0F2F6", "rule": "#D8DEE7",
+              "ink": "#12181F", "dim": "#4A5766", "muted": "#78879A", "green": "#127A55",
+              "amber": "#9A6A05", "red": "#B3352C", "blue": "#2C5F92", "violet": "#5B4BB5",
+              "head": "#EDF0F5", "shadow": "rgba(16,24,40,.08)"},
+}
+
+P = dict(PALETTES["dark"])
+
+
+def active_theme() -> str:
+    return "light" if str(st.session_state.get("theme", "Dark")).lower().startswith("l") else "dark"
+
+
+def apply_theme() -> str:
+    """Mutate P in place so charts and CSS both pick up the active palette."""
+    name = active_theme()
+    P.clear()
+    P.update(PALETTES[name])
+    SEV.update({"high": P["red"], "medium": P["amber"], "low": P["blue"]})
+    return name
+
+
 SEV = {"high": P["red"], "medium": P["amber"], "low": P["blue"]}
 F = "IBM Plex Mono, ui-monospace, monospace"
 
-CSS = f"""<style>
+
+def build_css() -> str:
+    return f"""<style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 html,body,.stApp{{font-family:'IBM Plex Sans',system-ui,sans-serif;background:{P['base']};color:{P['ink']}}}
-.block-container{{padding-top:1.6rem;padding-bottom:3rem;max-width:1460px}}
+.block-container{{padding-top:1.3rem;padding-bottom:3rem;max-width:1460px}}
 footer,#MainMenu,[data-testid="stDecoration"]{{visibility:hidden}}
+
+/* page title */
+.apptitle{{display:flex;align-items:baseline;justify-content:space-between;
+ border-bottom:1px solid {P['rule']};padding-bottom:10px;margin-bottom:14px}}
+.apptitle h1{{font-size:1.55rem;font-weight:700;letter-spacing:-.02em;margin:0;
+ color:{P['ink']};line-height:1.1}}
+.apptitle .sub{{font-family:{F};font-size:.66rem;text-transform:uppercase;
+ letter-spacing:.13em;color:{P['muted']}}}
 
 /* masthead */
 .mast{{display:flex;align-items:center;gap:18px;border:1px solid {P['rule']};
@@ -1621,17 +1658,23 @@ footer,#MainMenu,[data-testid="stDecoration"]{{visibility:hidden}}
 .mast .px .c{{font-size:.78rem;margin-top:3px}}
 
 /* kpi */
+/* Every KPI card is the same height whether or not it has a sparkline, so the
+   Overview and Risk pages line up. Provenance is pushed to the bottom by
+   margin-top:auto rather than by padding guesswork. */
 .kpi{{border:1px solid {P['rule']};border-top:2px solid var(--a,{P['rule']});background:{P['panel']};
- padding:13px 15px 11px;height:100%;transition:border-color .15s,background .15s}}
+ padding:13px 15px 11px;min-height:196px;height:100%;display:flex;flex-direction:column;
+ box-shadow:0 1px 2px {P['shadow']};transition:border-color .15s,background .15s}}
 .kpi:hover{{background:{P['panel2']};border-color:{P['muted']}}}
 .kpi .l{{font-family:{F};font-size:.63rem;text-transform:uppercase;letter-spacing:.11em;
- color:{P['muted']};display:flex;justify-content:space-between;align-items:center}}
-.kpi .v{{font-family:{F};font-size:1.48rem;font-weight:500;font-variant-numeric:tabular-nums;
- letter-spacing:-.025em;margin:6px 0 3px;line-height:1.1}}
-.kpi .d{{font-family:{F};font-size:.72rem}}
-.kpi .spark{{margin:7px 0 2px;opacity:.85}}
-.kpi .p{{font-family:{F};font-size:.56rem;color:{P['muted']};margin-top:8px;padding-top:7px;
- border-top:1px dashed {P['rule']};word-break:break-all;line-height:1.4}}
+ color:{P['muted']};display:flex;justify-content:space-between;align-items:flex-start;
+ gap:6px;min-height:2.1em;line-height:1.35}}
+.kpi .v{{font-family:{F};font-size:1.42rem;font-weight:500;font-variant-numeric:tabular-nums;
+ letter-spacing:-.025em;margin:6px 0 3px;line-height:1.15;white-space:nowrap;
+ overflow:hidden;text-overflow:ellipsis;color:{P['ink']}}}
+.kpi .d{{font-family:{F};font-size:.72rem;min-height:1.2em}}
+.kpi .spark{{margin:8px 0 2px;opacity:.9}}
+.kpi .p{{font-family:{F};font-size:.56rem;color:{P['muted']};margin-top:auto;padding-top:8px;
+ border-top:1px dashed {P['rule']};word-break:break-word;line-height:1.4}}
 
 /* structure */
 .sec{{font-family:{F};font-size:.69rem;text-transform:uppercase;letter-spacing:.15em;
@@ -1671,6 +1714,24 @@ footer,#MainMenu,[data-testid="stDecoration"]{{visibility:hidden}}
 /* streamlit chrome */
 [data-testid="stSidebar"]{{background:{P['panel']};border-right:1px solid {P['rule']}}}
 [data-testid="stSidebar"] .stButton button{{border-radius:0}}
+/* Streamlit's default widget labels are near-invisible against our palette.
+   Set them explicitly in both themes rather than relying on the base theme. */
+[data-testid="stSidebar"] label,[data-testid="stSidebar"] label p,
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p{{
+ color:{P['ink']}!important;font-size:.8rem;font-weight:500}}
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p{{
+ color:{P['dim']}!important;font-size:.72rem}}
+[data-testid="stSidebar"] .stRadio [role="radiogroup"] label p{{
+ color:{P['ink']}!important;font-weight:400}}
+label,[data-testid="stWidgetLabel"] p{{color:{P['dim']}!important}}
+[data-testid="stMarkdownContainer"] p{{color:{P['ink']}}}
+/* ticker quick-picks: never wrap a symbol across two lines */
+[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] .stButton button{{
+ white-space:nowrap;font-family:{F};font-size:.72rem;letter-spacing:.03em;
+ padding:5px 2px;min-height:32px}}
+[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] .stButton button p{{
+ white-space:nowrap;font-size:.72rem;margin:0}}
 .stTabs [data-baseweb="tab-list"]{{gap:2px;border-bottom:1px solid {P['rule']}}}
 .stTabs [data-baseweb="tab"]{{font-family:{F};font-size:.7rem;letter-spacing:.09em;
  text-transform:uppercase;background:transparent;border-radius:0;padding:10px 16px;color:{P['muted']}}}
@@ -1680,6 +1741,11 @@ footer,#MainMenu,[data-testid="stDecoration"]{{visibility:hidden}}
 div[data-testid="stExpander"] details{{border:1px solid {P['rule']};background:{P['panel']};
  border-radius:0}}
 .stButton button{{border-radius:0;font-size:.85rem}}
+.stTabs [data-baseweb="tab"] p{{font-size:.7rem;letter-spacing:.09em}}
+.stAlert{{border-radius:0}}
+[data-testid="stMetricValue"]{{font-family:{F}}}
+/* gauge and panels need a visible edge on a white background */
+.pan,.flag,.empty{{box-shadow:0 1px 2px {P['shadow']}}}
 </style>"""
 
 
@@ -1763,20 +1829,42 @@ def flagcard(f: Flag, why="") -> str:
 
 
 # --- charts (one shared template) -------------------------------------------
-CYCLE = [P["green"], P["blue"], P["amber"], P["violet"]]
+def cycle() -> list[str]:
+    """Series colours, read at call time so they follow the active theme.
+    A module-level list would be frozen to whichever palette was loaded first."""
+    return [P["green"], P["blue"], P["amber"], P["violet"]]
 
 
-def _style(fig, h=330, yt=""):
-    fig.update_layout(height=h, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      font=dict(family=F, size=11, color=P["dim"]),
-                      margin=dict(l=8, r=8, t=30, b=8),
-                      hoverlabel=dict(font_family=F, bgcolor=P["panel2"],
-                                      bordercolor=P["rule"], font_color=P["ink"]),
-                      legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0,
-                                  font=dict(size=10), bgcolor="rgba(0,0,0,0)"),
-                      xaxis=dict(showgrid=False, zeroline=False, linecolor=P["rule"]),
-                      yaxis=dict(showgrid=True, gridcolor=P["rule"], gridwidth=.5, zeroline=False,
-                                 title=dict(text=yt, font=dict(size=10))))
+def _title(text: str) -> dict:
+    """Left-aligned title anchored to the top-left corner of the figure."""
+    return dict(text=text, x=0, xanchor="left", y=0.97, yanchor="top",
+                font=dict(size=12.5, color=P["dim"]))
+
+
+def _style(fig, h=330, yt="", legend=True):
+    """Shared chart template.
+
+    The legend sits BELOW the plot, not above it. It used to be anchored at
+    y=1.02, which put it in the same band as the chart title — on any chart with
+    more than two series the two collided. Below the axis there is nothing to
+    collide with, at the cost of ~40px of height.
+    """
+    fig.update_layout(
+        height=h + (34 if legend else 0),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family=F, size=11, color=P["dim"]),
+        margin=dict(l=10, r=14, t=46, b=54 if legend else 26),
+        hoverlabel=dict(font_family=F, bgcolor=P["panel2"],
+                        bordercolor=P["rule"], font_color=P["ink"]),
+        showlegend=legend,
+        legend=dict(orientation="h", yanchor="top", y=-0.16, x=0, xanchor="left",
+                    font=dict(size=10, color=P["dim"]), bgcolor="rgba(0,0,0,0)",
+                    itemsizing="constant"),
+        xaxis=dict(showgrid=False, zeroline=False, linecolor=P["rule"],
+                   tickfont=dict(size=10), automargin=True),
+        yaxis=dict(showgrid=True, gridcolor=P["rule"], gridwidth=.5, zeroline=False,
+                   tickfont=dict(size=10), automargin=True,
+                   title=dict(text=yt, font=dict(size=10), standoff=8)))
     return fig
 
 
@@ -1785,9 +1873,9 @@ def ch_trend(R, keys, title="", yt=""):
     for i, (k, lbl) in enumerate(keys.items()):
         if k in R.index:
             fig.add_trace(go.Scatter(x=[str(c) for c in R.columns], y=R.loc[k].values, name=lbl,
-                                     mode="lines+markers", line=dict(color=CYCLE[i % 4], width=2.2),
+                                     mode="lines+markers", line=dict(color=cycle()[i % 4], width=2.2),
                                      marker=dict(size=6)))
-    fig.update_layout(title=dict(text=title, font=dict(size=12, color=P["dim"])))
+    fig.update_layout(title=_title(title))
     return _style(fig, yt=yt)
 
 
@@ -1795,16 +1883,16 @@ def ch_group(x, series, title="", yt=""):
     fig = go.Figure()
     for i, (lbl, vals) in enumerate(series.items()):
         fig.add_trace(go.Bar(x=[str(v) for v in x], y=vals, name=lbl,
-                             marker_color=CYCLE[i % 4], marker_line_width=0))
-    fig.update_layout(barmode="group", title=dict(text=title, font=dict(size=12, color=P["dim"])))
+                             marker_color=cycle()[i % 4], marker_line_width=0))
+    fig.update_layout(barmode="group", title=_title(title))
     return _style(fig, yt=yt)
 
 
 def ch_bars(x, y, title="", yt=""):
     fig = go.Figure(go.Bar(x=[str(v) for v in x], y=y, marker_line_width=0,
                            marker_color=[P["green"] if v >= 0 else P["red"] for v in y]))
-    fig.update_layout(title=dict(text=title, font=dict(size=12, color=P["dim"])))
-    return _style(fig, yt=yt)
+    fig.update_layout(title=_title(title))
+    return _style(fig, yt=yt, legend=False)
 
 
 def ch_water(labels, values, title=""):
@@ -1813,8 +1901,8 @@ def ch_water(labels, values, title=""):
                                  increasing=dict(marker=dict(color=P["green"])),
                                  decreasing=dict(marker=dict(color=P["red"])),
                                  textfont=dict(family=F, size=10)))
-    fig.update_layout(title=dict(text=title, font=dict(size=12, color=P["dim"])))
-    return _style(fig, 350)
+    fig.update_layout(title=_title(title))
+    return _style(fig, 350, legend=False)
 
 
 def ch_tornado(df, base, title=""):
@@ -1833,11 +1921,8 @@ def ch_tornado(df, base, title=""):
                          text=[money(v, 1) for v in df["Value at high"]],
                          textposition="outside", textfont=dict(family=F, size=10),
                          hovertemplate="%{y}<br>upside %{text}<extra></extra>"))
-    fig.update_layout(barmode="relative",
-                      title=dict(text=title, font=dict(size=12, color=P["dim"])),
-                      margin=dict(l=10, r=10, t=52, b=40))
+    fig.update_layout(barmode="relative", title=_title(title))
     fig = _style(fig, 340, "")
-    fig.update_layout(margin=dict(l=10, r=10, t=52, b=44))
     fig.update_xaxes(title=dict(text="Change in equity value against the base case",
                                 font=dict(size=10)), showgrid=True, gridcolor=P["rule"])
     fig.update_yaxes(showgrid=False, autorange="reversed", tickfont=dict(size=11))
@@ -1858,8 +1943,8 @@ def ch_heat(df, title="", xt="", yt=""):
         texttemplate="%{text}", textfont=dict(family=F, size=11, color=P["ink"]),
         hovertemplate=(f"{yt} %{{y}} · {xt} %{{x}}<br>"
                        "value per share $%{z:,.2f}<extra></extra>")))
-    fig.update_layout(title=dict(text=title, font=dict(size=12, color=P["dim"])))
-    fig = _style(fig, 380)
+    fig.update_layout(title=_title(title))
+    fig = _style(fig, 380, legend=False)
     fig.update_xaxes(type="category", title=dict(text=xt, font=dict(size=10)))
     fig.update_yaxes(type="category", showgrid=False,
                      title=dict(text=yt, font=dict(size=10)))
@@ -1878,8 +1963,8 @@ def ch_scen(names, vals, price=None, title="", unit="$", ytitle="Intrinsic value
         fig.add_hline(y=price, line=dict(color=P["dim"], width=1.4, dash="dot"),
                       annotation_text=f"market price ${price:,.2f}",
                       annotation_font=dict(family=F, size=10, color=P["dim"]))
-    fig.update_layout(title=dict(text=title, font=dict(size=12, color=P["dim"])))
-    return _style(fig, 320, ytitle)
+    fig.update_layout(title=_title(title))
+    return _style(fig, 320, ytitle, legend=False)
 
 
 # ============================================================================ #
@@ -1887,7 +1972,18 @@ def ch_scen(names, vals, price=None, title="", unit="$", ytitle="Intrinsic value
 # ============================================================================ #
 st.set_page_config(page_title="Financial Statement Intelligence", page_icon="📊",
                    layout="wide", initial_sidebar_state="expanded")
-st.markdown(CSS, unsafe_allow_html=True)
+
+# Theme is resolved BEFORE the stylesheet is built. Streamlit re-runs the whole
+# script when the toggle changes, and session state is already updated by then,
+# so the new palette applies on the same run rather than one behind.
+st.session_state.setdefault("theme", "Dark")
+THEME = apply_theme()
+st.markdown(build_css(), unsafe_allow_html=True)
+
+st.markdown(
+    "<div class='apptitle'><h1>Financial Statement Intelligence</h1>"
+    "<span class='sub'>SEC XBRL → normalized statements → analytics → AI</span></div>",
+    unsafe_allow_html=True)
 
 def _pick_ticker(t: str) -> None:
     """Set the ticker AND request a load.
@@ -1904,8 +2000,8 @@ def _pick_ticker(t: str) -> None:
 st.session_state.setdefault("ticker_in", "AAPL")
 
 with st.sidebar:
-    st.markdown("### Financial Statement Intelligence")
-    st.caption("SEC XBRL → normalized statements → analytics → AI layer")
+    st.radio("Appearance", ["Dark", "Light"], key="theme", horizontal=True)
+    st.markdown("---")
 
     source = st.radio("Data source", ["Demo company", "SEC EDGAR (live)"],
                       captions=["Offline, no keys needed", "Any US 10-K filer"])
@@ -2348,19 +2444,33 @@ with T4:
     z = altman_z(C, Y, mcap)
     fsc, fsig = piotroski(C, Y)
     st.markdown(sec("Risk and alert panel", "rule-based — no model involved"), unsafe_allow_html=True)
+    # Historical series so these cards carry sparklines and match the Overview
+    # page exactly — same component, same height, same information density.
+    z_series = [altman_z(C, y, mcap) for y in years]
+    f_series = [piotroski(C, y)[0] for y in years]
+
     r = st.columns(4)
     r[0].markdown(kpi("Composite risk score", f"{RISK['score']}/100",
                       f"<span class='d' style='color:{rcol}'>{RISK['label']}</span>",
-                      "100 − 18×high − 8×medium − 3×low", rcol), unsafe_allow_html=True)
+                      "100 − 18×high − 8×medium − 3×low", rcol, "",
+                      "Rule-based composite, no model involved"), unsafe_allow_html=True)
     r[1].markdown(kpi("Altman Z-Score", str(z) if z else "n/a",
                       f"<span class='d' style='color:{P['dim']}'>zone: {altman_band(z)}</span>",
-                      "1.2·WC/TA + 1.4·RE/TA + 3.3·EBIT/TA + 0.6·MVE/TL + Sales/TA", P["blue"]),
+                      "1.2·WC/TA + 1.4·RE/TA + 3.3·EBIT/TA + 0.6·MVE/TL + Sales/TA", P["blue"],
+                      sparkline(z_series), "Above 2.99 is the safe zone"),
                   unsafe_allow_html=True)
-    r[2].markdown(kpi("Piotroski F-Score", f"{fsc}/9" if fsc is not None else "n/a", "",
-                      "nine fundamental strength signals", P["blue"]), unsafe_allow_html=True)
-    r[3].markdown(kpi("Signals triggered", str(len(FLAGS)), "",
+    r[2].markdown(kpi("Piotroski F-Score", f"{fsc}/9" if fsc is not None else "n/a",
+                      f"<span class='d' style='color:{P['dim']}'>"
+                      f"{'strengthening' if (fsc or 0) >= 7 else 'mixed' if (fsc or 0) >= 4 else 'weakening'}"
+                      f"</span>",
+                      "nine fundamental strength signals", P["blue"],
+                      sparkline(f_series), "8–9 strengthening, 0–2 deteriorating"),
+                  unsafe_allow_html=True)
+    r[3].markdown(kpi("Signals triggered", str(len(FLAGS)),
+                      f"<span class='d' style='color:{P['muted']}'>of 12 rules</span>",
                       f"{RISK['counts']['high']} high · {RISK['counts']['medium']} medium",
-                      P["amber"]), unsafe_allow_html=True)
+                      P["amber"], "", "Deterministic forensic rule set"),
+                  unsafe_allow_html=True)
 
     st.markdown(sec("Triggered signals", f"{len(FLAGS)} of 12 rules fired"), unsafe_allow_html=True)
     if not FLAGS:
