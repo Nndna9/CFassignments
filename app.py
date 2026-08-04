@@ -1631,6 +1631,7 @@ F = "IBM Plex Mono, ui-monospace, monospace"
 
 
 def build_css() -> str:
+    SCHEME = active_theme()
     return f"""<style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 html,body,.stApp{{font-family:'IBM Plex Sans',system-ui,sans-serif;background:{P['base']};color:{P['ink']}}}
@@ -1711,40 +1712,127 @@ footer,#MainMenu,[data-testid="stDecoration"]{{visibility:hidden}}
 .gauge{{height:5px;background:{P['rule']};margin-top:9px;overflow:hidden}}
 .gauge > span{{display:block;height:100%}}
 
-/* streamlit chrome */
-[data-testid="stSidebar"]{{background:{P['panel']};border-right:1px solid {P['rule']}}}
+/* ------------------------------------------------------------------ *
+ * Streamlit's own widgets follow the BROWSER's colour-scheme preference,
+ * not our stylesheet. On a machine set to dark, choosing Light gave white
+ * text on a white sidebar and dark dropdown panels. Everything below pins
+ * the native widgets to the active palette instead of inheriting.
+ * ------------------------------------------------------------------ */
+:root, .stApp {{ color-scheme: {SCHEME}; }}
+
+[data-testid="stSidebar"],[data-testid="stSidebarContent"]{{
+ background:{P['panel']}!important;color:{P['ink']}!important;
+ border-right:1px solid {P['rule']}}}
+[data-testid="stSidebar"] *{{color:{P['ink']}}}
 [data-testid="stSidebar"] .stButton button{{border-radius:0}}
-/* Streamlit's default widget labels are near-invisible against our palette.
-   Set them explicitly in both themes rather than relying on the base theme. */
 [data-testid="stSidebar"] label,[data-testid="stSidebar"] label p,
 [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p{{
  color:{P['ink']}!important;font-size:.8rem;font-weight:500}}
 [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
 [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p{{
  color:{P['dim']}!important;font-size:.72rem}}
-[data-testid="stSidebar"] .stRadio [role="radiogroup"] label p{{
- color:{P['ink']}!important;font-weight:400}}
-label,[data-testid="stWidgetLabel"] p{{color:{P['dim']}!important}}
-[data-testid="stMarkdownContainer"] p{{color:{P['ink']}}}
 /* ticker quick-picks: never wrap a symbol across two lines */
 [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] .stButton button{{
  white-space:nowrap;font-family:{F};font-size:.72rem;letter-spacing:.03em;
  padding:5px 2px;min-height:32px}}
 [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] .stButton button p{{
  white-space:nowrap;font-size:.72rem;margin:0}}
-.stTabs [data-baseweb="tab-list"]{{gap:2px;border-bottom:1px solid {P['rule']}}}
+
+/* text, number and area inputs */
+input,textarea,[data-baseweb="input"],[data-baseweb="textarea"],
+[data-baseweb="input"] > div,[data-testid="stNumberInput"] div[data-baseweb="input"]{{
+ background:{P['panel']}!important;color:{P['ink']}!important;
+ border-color:{P['rule']}!important}}
+input::placeholder,textarea::placeholder{{color:{P['muted']}!important}}
+[data-testid="stNumberInput"] button{{background:{P['panel2']}!important;
+ color:{P['ink']}!important;border-color:{P['rule']}!important}}
+
+/* select / multiselect control and its portal-rendered dropdown */
+[data-baseweb="select"] > div,[data-baseweb="select"] div[role="button"]{{
+ background:{P['panel']}!important;color:{P['ink']}!important;
+ border-color:{P['rule']}!important}}
+[data-baseweb="popover"] [data-baseweb="menu"],[data-baseweb="popover"] ul,
+[role="listbox"],[data-baseweb="menu"]{{
+ background:{P['panel']}!important;color:{P['ink']}!important;
+ border:1px solid {P['rule']}!important}}
+[role="option"],[data-baseweb="menu"] li{{
+ background:{P['panel']}!important;color:{P['ink']}!important}}
+[role="option"]:hover,[data-baseweb="menu"] li:hover{{background:{P['panel2']}!important}}
+[data-baseweb="tag"]{{color:#fff!important}}
+
+/* buttons */
+.stButton button,[data-testid="stDownloadButton"] button,[data-testid="stFormSubmitButton"] button{{
+ background:{P['panel']}!important;color:{P['ink']}!important;
+ border:1px solid {P['rule']}!important;border-radius:0;font-size:.85rem}}
+.stButton button:hover,[data-testid="stDownloadButton"] button:hover{{
+ border-color:{P['green']}!important;color:{P['green']}!important}}
+.stButton button[kind="primary"]{{
+ background:{P['green']}!important;color:{P['base']}!important;
+ border-color:{P['green']}!important;font-weight:600}}
+
+/* dataframe (glide-data-grid is driven entirely by CSS variables) */
+[data-testid="stDataFrame"],[data-testid="stDataFrameResizable"]{{
+ --gdg-bg-cell:{P['panel']};--gdg-bg-cell-medium:{P['panel2']};
+ --gdg-bg-header:{P['head']};--gdg-bg-header-has-focus:{P['panel2']};
+ --gdg-bg-header-hovered:{P['panel2']};--gdg-text-dark:{P['ink']};
+ --gdg-text-medium:{P['dim']};--gdg-text-light:{P['muted']};
+ --gdg-text-header:{P['dim']};--gdg-text-header-selected:{P['ink']};
+ --gdg-border-color:{P['rule']};--gdg-horizontal-border-color:{P['rule']};
+ --gdg-accent-color:{P['green']};--gdg-accent-light:{P['panel2']};
+ --gdg-bg-bubble:{P['panel2']};--gdg-font-family:{F};
+ background:{P['panel']}!important;font-family:{F}}}
+
+/* tabs, expander, alerts, sliders, chat */
+.stTabs [data-baseweb="tab-list"]{{gap:2px;border-bottom:1px solid {P['rule']};
+ background:transparent!important}}
 .stTabs [data-baseweb="tab"]{{font-family:{F};font-size:.7rem;letter-spacing:.09em;
- text-transform:uppercase;background:transparent;border-radius:0;padding:10px 16px;color:{P['muted']}}}
-.stTabs [aria-selected="true"]{{background:{P['panel']};border-bottom:2px solid {P['green']};
- color:{P['ink']}}}
-[data-testid="stDataFrame"]{{font-family:{F}}}
-div[data-testid="stExpander"] details{{border:1px solid {P['rule']};background:{P['panel']};
- border-radius:0}}
-.stButton button{{border-radius:0;font-size:.85rem}}
-.stTabs [data-baseweb="tab"] p{{font-size:.7rem;letter-spacing:.09em}}
-.stAlert{{border-radius:0}}
-[data-testid="stMetricValue"]{{font-family:{F}}}
-/* gauge and panels need a visible edge on a white background */
+ text-transform:uppercase;background:transparent!important;border-radius:0;
+ padding:10px 16px;color:{P['muted']}!important}}
+.stTabs [aria-selected="true"]{{background:{P['panel']}!important;
+ border-bottom:2px solid {P['green']};color:{P['ink']}!important}}
+.stTabs [data-baseweb="tab"] p{{font-size:.7rem;letter-spacing:.09em;color:inherit!important}}
+div[data-testid="stExpander"] details{{border:1px solid {P['rule']}!important;
+ background:{P['panel']}!important;border-radius:0}}
+div[data-testid="stExpander"] summary,div[data-testid="stExpander"] summary p{{
+ color:{P['ink']}!important}}
+[data-testid="stAlert"],.stAlert{{border-radius:0;background:{P['panel2']}!important;
+ color:{P['ink']}!important;border:1px solid {P['rule']}!important}}
+[data-testid="stAlert"] p{{color:{P['ink']}!important}}
+[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"]{{border-color:{P['green']}}}
+[data-testid="stSliderTickBarMin"],[data-testid="stSliderTickBarMax"],
+[data-testid="stThumbValue"]{{color:{P['dim']}!important;font-family:{F}}}
+[data-testid="stChatInput"],[data-testid="stChatInput"] textarea{{
+ background:{P['panel']}!important;color:{P['ink']}!important;
+ border-color:{P['rule']}!important}}
+[data-testid="stChatMessage"]{{background:{P['panel']}!important;
+ border:1px solid {P['rule']};border-radius:0}}
+[data-testid="stTooltipContent"],[data-baseweb="tooltip"]{{
+ background:{P['panel2']}!important;color:{P['ink']}!important;
+ border:1px solid {P['rule']}!important}}
+code,pre,[data-testid="stCode"]{{background:{P['panel2']}!important;color:{P['ink']}!important}}
+label,[data-testid="stWidgetLabel"] p{{color:{P['dim']}!important}}
+[data-testid="stMarkdownContainer"] p{{color:{P['ink']}}}
+[data-testid="stCaptionContainer"],[data-testid="stCaptionContainer"] p{{color:{P['dim']}!important}}
+[data-testid="stHeader"]{{background:transparent!important}}
+/* HTML data tables — fully theme-controlled, unlike st.dataframe */
+.dtwrap{{border:1px solid {P['rule']};background:{P['panel']};margin-bottom:10px;
+ box-shadow:0 1px 2px {P['shadow']}}}
+table.dt{{width:100%;border-collapse:collapse;font-family:{F};font-size:.76rem;
+ font-variant-numeric:tabular-nums}}
+table.dt thead th{{position:sticky;top:0;z-index:2;background:{P['head']};
+ color:{P['dim']};font-weight:600;text-align:right;padding:8px 11px;
+ border-bottom:1px solid {P['rule']};white-space:nowrap;font-size:.7rem;
+ text-transform:uppercase;letter-spacing:.06em}}
+table.dt thead th.idx{{text-align:left}}
+table.dt td{{padding:7px 11px;border-bottom:1px solid {P['rule']};
+ color:{P['ink']};white-space:nowrap}}
+table.dt.dt-r td{{text-align:right}}
+table.dt td.idx{{text-align:left;color:{P['dim']};font-family:'IBM Plex Sans',sans-serif;
+ white-space:normal;min-width:150px}}
+table.dt tbody tr:hover td{{background:{P['panel2']}}}
+table.dt tbody tr:last-child td{{border-bottom:none}}
+
+/* panels need a visible edge on a white background */
 .pan,.flag,.empty{{box-shadow:0 1px 2px {P['shadow']}}}
 </style>"""
 
@@ -1821,6 +1909,38 @@ def gauge(pct, color) -> str:
     return f"<div class='gauge'><span style='width:{max(0,min(100,pct))}%;background:{color}'></span></div>"
 
 
+def dtable(df: pd.DataFrame, fmt=None, index: bool = True, height: int | None = None,
+           align_right: bool = True) -> str:
+    """Render a DataFrame as styled HTML.
+
+    st.dataframe draws to a canvas and takes its colours from Streamlit's own
+    theme config, not from CSS — so it stayed dark in light mode no matter what
+    the stylesheet said. These tables are read-only, so rendering them ourselves
+    is both simpler and the only way to keep one palette across the whole app.
+    """
+    def cell(v):
+        if fmt is None:
+            return "—" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v)
+        try:
+            return fmt(v)
+        except Exception:
+            return "—" if v is None else str(v)
+
+    head = "".join(f"<th>{c}</th>" for c in df.columns)
+    if index:
+        head = "<th class='idx'></th>" + head
+    rows = []
+    for idx, row in df.iterrows():
+        cells = "".join(f"<td>{cell(v)}</td>" for v in row)
+        if index:
+            cells = f"<td class='idx'>{idx}</td>" + cells
+        rows.append(f"<tr>{cells}</tr>")
+    style = f"max-height:{height}px;overflow:auto;" if height else ""
+    cls = "dt" + (" dt-r" if align_right else "")
+    return (f"<div class='dtwrap' style='{style}'><table class='{cls}'>"
+            f"<thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>")
+
+
 def flagcard(f: Flag, why="") -> str:
     return (f"<div class='flag' style='--s:{SEV.get(f.severity,P['muted'])}'>"
             f"<div class='t'>{f.severity} · {f.category}</div><div class='h'>{f.title}</div>"
@@ -1849,22 +1969,31 @@ def _style(fig, h=330, yt="", legend=True):
     more than two series the two collided. Below the axis there is nothing to
     collide with, at the cost of ~40px of height.
     """
+    # Every text colour is set explicitly. Plotly's default template supplies its
+    # own greys for tick labels, axis titles and colour-bar text, and those do not
+    # follow the app palette — in light mode they stayed near-black, in dark mode
+    # near-invisible. Nothing here is left to inherit.
+    tick = dict(family=F, size=10, color=P["dim"])
+    axtitle = dict(family=F, size=10, color=P["muted"])
     fig.update_layout(
+        template="none",
         height=h + (34 if legend else 0),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family=F, size=11, color=P["dim"]),
         margin=dict(l=10, r=14, t=46, b=54 if legend else 26),
-        hoverlabel=dict(font_family=F, bgcolor=P["panel2"],
-                        bordercolor=P["rule"], font_color=P["ink"]),
+        hoverlabel=dict(font=dict(family=F, color=P["ink"]), bgcolor=P["panel2"],
+                        bordercolor=P["rule"]),
         showlegend=legend,
         legend=dict(orientation="h", yanchor="top", y=-0.16, x=0, xanchor="left",
-                    font=dict(size=10, color=P["dim"]), bgcolor="rgba(0,0,0,0)",
-                    itemsizing="constant"),
+                    font=dict(family=F, size=10, color=P["ink"]),
+                    bgcolor="rgba(0,0,0,0)", itemsizing="constant"),
         xaxis=dict(showgrid=False, zeroline=False, linecolor=P["rule"],
-                   tickfont=dict(size=10), automargin=True),
+                   tickfont=tick, automargin=True, color=P["dim"],
+                   title=dict(font=axtitle)),
         yaxis=dict(showgrid=True, gridcolor=P["rule"], gridwidth=.5, zeroline=False,
-                   tickfont=dict(size=10), automargin=True,
-                   title=dict(text=yt, font=dict(size=10), standoff=8)))
+                   tickfont=tick, automargin=True, color=P["dim"],
+                   title=dict(text=yt, font=axtitle, standoff=8)))
+    fig.update_annotations(font=dict(family=F, color=P["dim"]))
     return fig
 
 
@@ -1900,7 +2029,8 @@ def ch_water(labels, values, title=""):
                                  connector=dict(line=dict(color=P["rule"], width=1)),
                                  increasing=dict(marker=dict(color=P["green"])),
                                  decreasing=dict(marker=dict(color=P["red"])),
-                                 textfont=dict(family=F, size=10)))
+                                 textfont=dict(family=F, size=10, color=P["ink"]),
+                                 cliponaxis=False))
     fig.update_layout(title=_title(title))
     return _style(fig, 350, legend=False)
 
@@ -1911,15 +2041,20 @@ def ch_tornado(df, base, title=""):
     panel above it."""
     lo, hi = df["Value at low"] - base, df["Value at high"] - base
     fig = go.Figure()
+    # Labels sit INSIDE the bars. Outside-positioned text on a horizontal bar
+    # lands next to the y-axis category label and the two run together.
+    label = dict(family=F, size=10, color="#FFFFFF")
     fig.add_trace(go.Bar(y=df["Variable"], x=lo, orientation="h", name="Downside",
                          marker_color=P["red"], marker_line_width=0,
                          text=[money(v, 1) for v in df["Value at low"]],
-                         textposition="outside", textfont=dict(family=F, size=10),
+                         textposition="inside", insidetextanchor="middle", textfont=label,
+                         textangle=0, cliponaxis=False, constraintext="inside",
                          hovertemplate="%{y}<br>downside %{text}<extra></extra>"))
     fig.add_trace(go.Bar(y=df["Variable"], x=hi, orientation="h", name="Upside",
                          marker_color=P["green"], marker_line_width=0,
                          text=[money(v, 1) for v in df["Value at high"]],
-                         textposition="outside", textfont=dict(family=F, size=10),
+                         textposition="inside", insidetextanchor="middle", textfont=label,
+                         textangle=0, cliponaxis=False, constraintext="inside",
                          hovertemplate="%{y}<br>upside %{text}<extra></extra>"))
     fig.update_layout(barmode="relative", title=_title(title))
     fig = _style(fig, 340, "")
@@ -1937,8 +2072,8 @@ def ch_heat(df, title="", xt="", yt=""):
     fig = go.Figure(go.Heatmap(
         z=df.values, x=list(df.columns), y=list(df.index),
         colorscale=[[0, P["red"]], [.5, P["panel2"]], [1, P["green"]]],
-        colorbar=dict(outlinewidth=0, tickfont=dict(family=F, size=9),
-                      title=dict(text="$ / share", font=dict(size=9))),
+        colorbar=dict(outlinewidth=0, tickfont=dict(family=F, size=9, color=P["dim"]),
+                      title=dict(text="$ / share", font=dict(family=F, size=9, color=P["muted"]))),
         text=[[f"${v:,.0f}" for v in row] for row in df.values],
         texttemplate="%{text}", textfont=dict(family=F, size=11, color=P["ink"]),
         hovertemplate=(f"{yt} %{{y}} · {xt} %{{x}}<br>"
@@ -1962,9 +2097,13 @@ def ch_scen(names, vals, price=None, title="", unit="$", ytitle="Intrinsic value
     if price:
         fig.add_hline(y=price, line=dict(color=P["dim"], width=1.4, dash="dot"),
                       annotation_text=f"market price ${price:,.2f}",
-                      annotation_font=dict(family=F, size=10, color=P["dim"]))
+                      annotation_font=dict(family=F, size=10, color=P["ink"]))
     fig.update_layout(title=_title(title))
-    return _style(fig, 320, ytitle, legend=False)
+    fig = _style(fig, 320, ytitle, legend=False)
+    # headroom so the label above the tallest bar is not clipped
+    top = max(list(vals) + ([price] if price else [0]))
+    fig.update_yaxes(range=[0, top * 1.18])
+    return fig
 
 
 # ============================================================================ #
@@ -2223,8 +2362,8 @@ with T1:
     if keys:
         disp = RT.loc[keys].copy()
         disp.index = [f"{RATIO_META[k][0]}  ({RATIO_META[k][1]})" for k in keys]
-        st.dataframe(disp.style.format(lambda v: "—" if pd.isna(v) else f"{v:,.3f}"),
-                     width="stretch")
+        st.markdown(dtable(disp, lambda v: "—" if pd.isna(v) else f"{v:,.3f}", height=430),
+                    unsafe_allow_html=True)
         st.download_button("Download ratios (CSV)", disp.to_csv().encode(),
                            f"{p['ticker']}_ratios.csv", "text/csv")
     else:
@@ -2235,8 +2374,9 @@ with T1:
     vdf = pd.DataFrame(C.validations)
     if not vdf.empty:
         vdf["Result"] = vdf["passed"].map({True: "Pass", False: "FAIL"})
-        st.dataframe(vdf[["FY", "Check", "Severity", "Result", "Detail"]], width="stretch",
-                     hide_index=True, height=200)
+        st.markdown(dtable(vdf[["FY", "Check", "Severity", "Result", "Detail"]],
+                           index=False, height=230, align_right=False),
+                    unsafe_allow_html=True)
 
 # --- TAB 2: STATEMENTS & CASH FLOW -----------------------------------------
 with T2:
@@ -2255,14 +2395,15 @@ with T2:
         den = "revenue" if skey != BS else "total_assets"
         st.caption(f"Each line as a percentage of {CONCEPTS[den][1].lower()}.")
         shown = frame.divide(pd.Series({y: C.get(den, y) for y in years}), axis=1)
-        st.dataframe(shown.style.format(lambda v: "—" if pd.isna(v) else f"{v:.1%}"),
-                     width="stretch", height=460)
+        st.markdown(dtable(shown, lambda v: "—" if pd.isna(v) else f"{v:.1%}", height=470),
+                    unsafe_allow_html=True)
     elif mode == "Year-over-year change":
-        st.dataframe(frame.pct_change(axis=1).style.format(
-            lambda v: "—" if pd.isna(v) else f"{v:+.1%}"), width="stretch", height=460)
+        st.markdown(dtable(frame.pct_change(axis=1),
+                           lambda v: "—" if pd.isna(v) else f"{v:+.1%}", height=470),
+                    unsafe_allow_html=True)
     else:
-        st.dataframe(frame.style.format(lambda v: "—" if pd.isna(v) else money(v, 1)),
-                     width="stretch", height=460)
+        st.markdown(dtable(frame, lambda v: "—" if pd.isna(v) else money(v, 1), height=470),
+                    unsafe_allow_html=True)
     st.download_button("Download statement (CSV)", frame.to_csv().encode(),
                        f"{p['ticker']}_{skey}.csv", "text/csv")
 
@@ -2322,7 +2463,8 @@ with T2:
     l1, l2 = st.columns([1, 3])
     fy = l1.selectbox("Fiscal year", ["All"] + [str(y) for y in reversed(years)])
     view = lineage if fy == "All" else lineage[lineage["FY"] == int(fy)]
-    st.dataframe(view, width="stretch", hide_index=True, height=320)
+    st.markdown(dtable(view, index=False, height=340, align_right=False),
+                unsafe_allow_html=True)
     st.markdown(f"<a href='{p.get('filings_url','#')}' target='_blank' style='font-family:{F};"
                 f"font-size:.75rem;color:{P['green']}'>→ open this company's filings on sec.gov</a>",
                 unsafe_allow_html=True)
@@ -2333,12 +2475,13 @@ with T3:
                 unsafe_allow_html=True)
     st.caption("Optimistic and pessimistic use the 90th and 10th percentile of realised historical "
                "drivers, not an arbitrary ±10%.")
-    st.dataframe(pd.DataFrame([{
+    st.markdown(dtable(pd.DataFrame([{
         "Scenario": r.name, "Revenue growth": f"{r.drivers.revenue_growth:.1%}",
         "Gross margin": f"{r.drivers.gross_margin:.1%}", "WACC": f"{r.drivers.wacc:.1%}",
         "Equity value": money(r.equity_value),
         "Value per share": f"${r.value_per_share:,.2f}" if r.value_per_share else "n/a",
-        "Decision": r.decision} for r in RESULTS]), width="stretch", hide_index=True)
+        "Decision": r.decision} for r in RESULTS]), index=False, align_right=False),
+        unsafe_allow_html=True)
     have_vps = all(r.value_per_share for r in RESULTS)
     if have_vps:
         st.plotly_chart(ch_scen([r.name for r in RESULTS],
@@ -2360,17 +2503,30 @@ with T3:
     st.markdown(sec("Assumption controls", "drag to model your own case"), unsafe_allow_html=True)
     s1, s2, s3 = st.columns(3)
     M = BASE.copy()
-    M.revenue_growth = s1.slider("Revenue growth", -.30, .50, float(BASE.revenue_growth), .005,
-                                 "%.3f", help="Compound annual growth applied to each forecast year")
-    M.gross_margin = s1.slider("Gross margin", .05, .90, float(BASE.gross_margin), .005, "%.3f")
-    M.opex_pct_revenue = s2.slider("Opex % of revenue", .02, .70, float(BASE.opex_pct_revenue),
-                                   .005, "%.3f")
-    M.capex_pct_revenue = s2.slider("Capex % of revenue", 0.0, .30, float(BASE.capex_pct_revenue),
-                                    .002, "%.3f")
-    M.wacc = s3.slider("WACC (discount rate)", .03, .25, float(BASE.wacc), .0025, "%.4f",
-                       help="Weighted average cost of capital used to discount forecast cash flows")
-    M.terminal_growth = s3.slider("Terminal growth", 0.0, .045, float(BASE.terminal_growth),
-                                  .0025, "%.4f")
+
+    # Sliders work in PERCENTAGE POINTS and are divided by 100 on the way into
+    # the model. Streamlit applies `format` to the raw value, so a slider holding
+    # 0.10 with format "%.0f%%" rendered as "0%" — the number was right and the
+    # label was nonsense. Holding percent and converting keeps the two in step.
+    M.revenue_growth = s1.slider(
+        "Revenue growth", -30.0, 50.0, float(BASE.revenue_growth) * 100, 0.5, "%.1f%%",
+        help="Compound annual growth applied to each forecast year") / 100
+    M.gross_margin = s1.slider(
+        "Gross margin", 5.0, 90.0, float(BASE.gross_margin) * 100, 0.5, "%.1f%%",
+        help="Gross profit as a percentage of revenue") / 100
+    M.opex_pct_revenue = s2.slider(
+        "Opex % of revenue", 2.0, 70.0, float(BASE.opex_pct_revenue) * 100, 0.5, "%.1f%%",
+        help="Operating expenses as a percentage of revenue") / 100
+    M.capex_pct_revenue = s2.slider(
+        "Capex % of revenue", 0.0, 30.0, float(BASE.capex_pct_revenue) * 100, 0.2, "%.1f%%",
+        help="Capital expenditure as a percentage of revenue") / 100
+    M.wacc = s3.slider(
+        "WACC (discount rate)", 3.0, 25.0, float(BASE.wacc) * 100, 0.25, "%.2f%%",
+        help="Weighted average cost of capital used to discount forecast cash flows") / 100
+    M.terminal_growth = s3.slider(
+        "Terminal growth", 0.0, 4.5, float(BASE.terminal_growth) * 100, 0.25, "%.2f%%",
+        help="Long-run growth rate beyond the forecast horizon. Must stay below "
+             "the WACC or the terminal value formula breaks down.") / 100
 
     LIVE = value(C, M, "Manual")
     v1, v2, v3 = st.columns(3)
@@ -2384,7 +2540,7 @@ with T3:
                     "equity value ÷ shares outstanding", P["green"]), unsafe_allow_html=True)
 
     with st.expander("Projected free cash flow"):
-        st.dataframe(LIVE.projection.style.format(lambda v: f"{v:,.0f}"), width="stretch")
+        st.markdown(dtable(LIVE.projection, lambda v: f"{v:,.0f}"), unsafe_allow_html=True)
 
     st.markdown(sec("Sensitivity analysis", "at least two variables required"), unsafe_allow_html=True)
     sv1, sv2 = st.columns([3, 1])
@@ -2392,9 +2548,9 @@ with T3:
                             default=["revenue_growth", "wacc", "gross_margin",
                                      "capex_pct_revenue"],
                             format_func=lambda k: DRIVER_LABELS[k])
-    shift = sv2.slider("Shock size", 0.05, 0.30, 0.10, 0.05, format="%.0f%%",
+    shift = sv2.slider("Shock size", 5, 30, 10, 5, format="%d%%",
                        help="How far each assumption is moved up and down, as a "
-                            "percentage of its own base value.")
+                            "percentage of its own base value.") / 100
     if len(svars) >= 2:
         TD = tornado(C, M, svars, shift)
         st.plotly_chart(ch_tornado(TD, LIVE.equity_value,
@@ -2485,8 +2641,9 @@ with T4:
 
     if fsig:
         with st.expander("Piotroski F-Score breakdown"):
-            st.dataframe(pd.DataFrame([{"Signal": s, "Result": "Pass" if ok else "Fail"}
-                                       for s, ok in fsig]), width="stretch", hide_index=True)
+            st.markdown(dtable(pd.DataFrame([{"Signal": s, "Result": "Pass" if ok else "Fail"}
+                                            for s, ok in fsig]), index=False, align_right=False),
+                        unsafe_allow_html=True)
 
 # --- TAB 5: AI INSIGHTS -----------------------------------------------------
 with T5:
@@ -2600,7 +2757,7 @@ with T5:
             cdf = pd.DataFrame({"Base case": {DRIVER_LABELS[k]: v for k, v in asdict(BASE).items()},
                                 "AI scenario": {DRIVER_LABELS[k]: v for k, v in asdict(dd).items()}})
             cdf["Change"] = cdf["AI scenario"] - cdf["Base case"]
-            st.dataframe(cdf.style.format("{:.4f}"), width="stretch")
+            st.markdown(dtable(cdf, lambda v: f"{v:.4f}"), unsafe_allow_html=True)
             out = value(C, dd, "AI scenario")
             st.markdown(chip(f"value per share ${out.value_per_share:,.2f}"
                              if out.value_per_share else "value per share n/a", "ok"),
@@ -2615,15 +2772,18 @@ with T5:
         st.caption(f"{len(C.unmapped)} material tag(s) fall outside the concept registry. The model "
                    "classifies the label and description; it never reads the value.")
         if C.unmapped:
-            st.dataframe(pd.DataFrame(C.unmapped)[["taxonomy", "tag", "label", "latest_value",
-                                                   "is_custom"]], width="stretch", hide_index=True)
+            _u = pd.DataFrame(C.unmapped)[["taxonomy", "tag", "label", "latest_value", "is_custom"]]
+            _u["latest_value"] = _u["latest_value"].map(money)
+            st.markdown(dtable(_u, index=False, height=280, align_right=False),
+                        unsafe_allow_html=True)
         if st.button("Map unregistered tags"):
             with st.spinner("Classifying…"):
                 st.session_state.extract = ai_extract(C)
         res = st.session_state.get("extract")
         if res and res["ok"]:
             if res["mappings"]:
-                st.dataframe(pd.DataFrame(res["mappings"]), width="stretch", hide_index=True)
+                st.markdown(dtable(pd.DataFrame(res["mappings"]), index=False,
+                                   align_right=False), unsafe_allow_html=True)
             st.markdown(pan(f"<p>{res['note']}</p>"), unsafe_allow_html=True)
         elif res:
             st.error(res["error"])
@@ -2660,4 +2820,5 @@ with T5:
 
     if TELEMETRY:
         with st.expander("Model telemetry"):
-            st.dataframe(pd.DataFrame(TELEMETRY), width="stretch", hide_index=True)
+            st.markdown(dtable(pd.DataFrame(TELEMETRY), index=False, align_right=False),
+                        unsafe_allow_html=True)
